@@ -15,10 +15,17 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the entire project into the container
 COPY . .
 
+# Create a directory for persistent data (e.g., the SQLite database)
+RUN mkdir -p /app/data
+
 # Set working directory to the source folder
 WORKDIR /app/src
 
-# Expose the port that the server listens on (default: 3142)
+# Default environment variables (can be overridden at runtime)
+ENV PORT=3142
+ENV DB_NAME=/app/data/cache.db
+
+# Expose the port the server listens on
 EXPOSE 3142
 
 # Command to run the proxy caching server

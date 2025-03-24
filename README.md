@@ -8,7 +8,7 @@ A lightweight, asynchronous HTTP proxy caching server implemented in Python. Thi
 - **Persistent Caching:** Caches HTTP responses in an SQLite database with WAL mode enabled for better concurrency.
 - **In-Memory Cache:** Uses an in-memory TTL cache via `cachetools` to serve frequent requests quickly.
 - **Batch Write Operations:** Groups write operations to the database to minimize I/O overhead.
-- **Configurable:** All key parameters (e.g., port number, cache expiration, maximum connections) can be easily configured in `src/config.py`.
+- **Configurable via Environment Variables:** All key parameters (e.g., port number, cache expiration, maximum connections) can be overridden using environment variables.
 - **Logging:** Detailed logging is available for debugging and monitoring via a configurable logger.
 
 ## Project Structure
@@ -28,7 +28,7 @@ A lightweight, asynchronous HTTP proxy caching server implemented in Python. Thi
     └── server.py
 ```
 
-- **src/config.py:** Contains configuration parameters.
+- **src/config.py:** Contains configuration parameters. Now supports environment variable overrides.
 - **src/db.py:** Manages persistent caching with SQLite using asynchronous batch write operations.
 - **src/handler.py:** Contains HTTP request handling and proxy logic.
 - **src/logger.py:** Configures application logging.
@@ -72,29 +72,34 @@ To start the proxy caching server locally, run:
 python src/server.py
 ```
 
-The server listens on the port specified in `src/config.py` (default: 3142). Logs will be output to both the console and the `proxy.log` file.
+The server listens on the port specified in **src/config.py** (default: 3142). Logs will be output to both the console and the `proxy.log` file.
 
 ## Docker Usage
 
-This project is Dockerized to simplify deployment.
+This project is Dockerized for simplified deployment.
 
 ### Build the Docker Image
 
-In the project root directory, run:
+From the project root, run:
 
 ```bash
 docker build -t proxy-caching-server:latest .
 ```
 
-### Run the Docker Container
+### Run the Docker Container with Environment Variable Overrides and a Volume Mount
 
-Run the container by mapping the container port to your host:
+You can override configuration values using environment variables. For example, to change the port or database location, run:
 
 ```bash
-docker run -p 3142:3142 proxy-caching-server:latest
+docker run -p 3142:3142 \
+  -e PORT=3142 \
+  -e DB_NAME=/app/data/cache.db \
+  -v /path/on/host/data:/app/data \
+  proxy-caching-server:latest
 ```
 
-This maps port **3142** on your host to port **3142** in the container.
+- The `-e` flags override default environment variables.
+- The `-v /path/on/host/data:/app/data` flag mounts the host directory `/path/on/host/data` to the container's `/app/data` directory. This ensures that the SQLite database file persists even if the container is removed or restarted.
 
 ## Contributing
 
