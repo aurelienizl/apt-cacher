@@ -15,6 +15,7 @@ from logger import logger
 # Semaphore to limit the number of concurrent client connections.
 semaphore = asyncio.Semaphore(MAX_CONCURRENT_CONNECTIONS)
 
+
 async def limited_handle_client(reader, writer, proxy_handler):
     """
     @brief Wrapper to handle a client connection with concurrency control.
@@ -25,10 +26,11 @@ async def limited_handle_client(reader, writer, proxy_handler):
     async with semaphore:
         await proxy_handler.handle_client(reader, writer)
 
+
 async def main():
     """
     @brief Initialize resources and start the proxy server.
-    
+
     This function sets up the persistent and in-memory caches, creates an aiohttp session,
     and starts the asyncio server to handle incoming connections.
     """
@@ -37,12 +39,11 @@ async def main():
     mem_cache = MemoryCache()
     connector = aiohttp.TCPConnector(limit=MAX_CONCURRENT_CONNECTIONS)
     async with aiohttp.ClientSession(
-        connector=connector,
-        timeout=aiohttp.ClientTimeout(total=30)
+        connector=connector, timeout=aiohttp.ClientTimeout(total=30)
     ) as session:
         proxy_handler = ProxyHandler(session, db, mem_cache)
         server = await asyncio.start_server(
-            lambda r, w: limited_handle_client(r, w, proxy_handler), '0.0.0.0', PORT
+            lambda r, w: limited_handle_client(r, w, proxy_handler), "0.0.0.0", PORT
         )
         logger.info(f"Server running on port {PORT}")
         async with server:
@@ -51,6 +52,7 @@ async def main():
             except asyncio.CancelledError:
                 pass
     await db.shutdown()
+
 
 if __name__ == "__main__":
     try:

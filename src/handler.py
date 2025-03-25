@@ -9,11 +9,13 @@ import aiohttp
 import socket  # Required for setting socket options.
 from logger import logger
 
+
 class ProxyHandler:
     """
     @brief Encapsulates the logic to process client requests, perform caching,
            and forward responses between the client and target server.
     """
+
     def __init__(self, session, db, memory_cache):
         """
         @brief Initialize the ProxyHandler.
@@ -53,24 +55,37 @@ class ProxyHandler:
                 content = await resp.read()
                 status = resp.status
                 headers = dict(resp.headers)
+
+                # Remove chunked transfer and set a proper Content-Length header.
+                headers.pop("Transfer-Encoding", None)
+                headers["Content-Length"] = str(len(content))
+
+                # Write status line and headers to the client.
                 response_line = f"HTTP/1.1 {status} {resp.reason}\r\n"
                 writer.write(response_line.encode())
                 for key, value in headers.items():
-                    if key.lower() != "transfer-encoding":
-                        writer.write(f"{key}: {value}\r\n".encode())
+                    writer.write(f"{key}: {value}\r\n".encode())
                 writer.write(b"\r\n")
                 writer.write(content)
                 await writer.drain()
 
+                # Cache the response if enabled and successful.
                 if cache_enabled and status == 200:
                     await self.db.cache_response(url, content, headers, status)
-                    await self.memory_cache.set(url, {"content": content, "headers": headers, "status_code": status})
+                    await self.memory_cache.set(
+                        url,
+                        {"content": content, "headers": headers, "status_code": status},
+                    )
         except aiohttp.ClientError as e:
-            response = f"HTTP/1.1 502 Bad Gateway\r\n\r\n{e}"
-            writer.write(response.encode())
+            error_response = f"HTTP/1.1 502 Bad Gateway\r\n\r\n{e}"
+            writer.write(error_response.encode())
             await writer.drain()
         finally:
             writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
 
     async def send_error(self, writer, status_code=400, reason="Bad Request"):
         """
@@ -84,14 +99,16 @@ class ProxyHandler:
         await writer.drain()
         writer.close()
 
-    async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+    async def handle_client(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ):
         """
         @brief Process a client connection by parsing the HTTP request,
                checking caches, and forwarding the request appropriately.
         @param reader The client's stream reader.
         @param writer The client's stream writer.
         """
-        sock = writer.get_extra_info('socket')
+        sock = writer.get_extra_info("socket")
         if sock:
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
@@ -121,24 +138,30 @@ class ProxyHandler:
                 headers[key.strip()] = value.strip()
 
         # Construct the full URL if needed.
-        url = path if path.startswith("http") else f"http://{headers.get('Host', '')}{path}"
+        url = (
+            path
+            if path.startswith("http")
+            else f"http://{headers.get('Host', '')}{path}"
+        )
 
         if method.upper() == "CONNECT":
             logger.info(f"Establishing tunnel to {path}")
             try:
                 host, port_str = path.split(":")
                 port = int(port_str)
-            except Exception:
-                await self.send_error(writer)
+                # Optionally, use asyncio.wait_for for a timeout (e.g., 10 seconds)
+                remote_reader, remote_writer = await asyncio.wait_for(
+                    asyncio.open_connection(host, port), timeout=10
+                )
+            except Exception as e:
+                logger.error(f"Error establishing tunnel: {e}")
+                await self.send_error(writer, status_code=504, reason="Gateway Timeout")
                 return
 
-            # Establish a tunnel for CONNECT methods.
-            remote_reader, remote_writer = await asyncio.open_connection(host, port)
             writer.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
             await writer.drain()
             await asyncio.gather(
-                self.forward(reader, remote_writer),
-                self.forward(remote_reader, writer)
+                self.forward(reader, remote_writer), self.forward(remote_reader, writer)
             )
         elif method.upper() == "GET":
             # Try to retrieve from in-memory or persistent cache.
@@ -148,10 +171,10 @@ class ProxyHandler:
                 logger.info(f"Cache hit for {url}")
                 response_line = f"HTTP/1.1 {cached['status_code']} OK\r\n"
                 writer.write(response_line.encode())
-                for key, value in cached['headers'].items():
+                for key, value in cached["headers"].items():
                     writer.write(f"{key}: {value}\r\n".encode())
                 writer.write(b"\r\n")
-                writer.write(cached['content'])
+                writer.write(cached["content"])
                 await writer.drain()
                 writer.close()
             else:

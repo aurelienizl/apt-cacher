@@ -10,13 +10,15 @@ import json
 from datetime import datetime, timedelta
 from config import DB_NAME, CACHE_EXPIRATION_SECONDS, BATCH_SIZE, BATCH_INTERVAL
 
+
 class CacheDatabase:
     """
     @brief Encapsulates the SQLite database operations for caching.
-    
+
     Provides methods to initialize the database, verify data integrity,
     perform batch writes, query cached responses, and shut down the database.
     """
+
     def __init__(self, db_name=DB_NAME):
         """
         @brief Initialize the CacheDatabase instance.
@@ -34,8 +36,9 @@ class CacheDatabase:
                verify integrity, and start the background write worker.
         """
         self.conn = await aiosqlite.connect(self.db_name)
-        await self.conn.execute('PRAGMA journal_mode=WAL;')
-        await self.conn.execute('''
+        await self.conn.execute("PRAGMA journal_mode=WAL;")
+        await self.conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS cache (
                 url TEXT PRIMARY KEY,
                 content BLOB,
@@ -44,7 +47,8 @@ class CacheDatabase:
                 expected_size INTEGER,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
-        ''')
+        """
+        )
         await self.conn.commit()
         await self.verify_integrity()
         self.worker_task = asyncio.create_task(self._write_worker())
@@ -52,7 +56,7 @@ class CacheDatabase:
     async def verify_integrity(self):
         """
         @brief Verify the database integrity and remove corrupted cache entries.
-        
+
         Corrupted entries are defined as those where the stored content length
         does not match the expected size.
         """
@@ -61,17 +65,21 @@ class CacheDatabase:
                 result = await cursor.fetchone()
                 if result[0] != "ok":
                     raise Exception("Database integrity check failed: " + result[0])
-            async with self.conn.execute("SELECT url, LENGTH(content), expected_size FROM cache") as cursor:
+            async with self.conn.execute(
+                "SELECT url, LENGTH(content), expected_size FROM cache"
+            ) as cursor:
                 async for row in cursor:
                     url, actual_size, expected_size = row
                     if expected_size is not None and actual_size != expected_size:
-                        await self.conn.execute("DELETE FROM cache WHERE url = ?", (url,))
+                        await self.conn.execute(
+                            "DELETE FROM cache WHERE url = ?", (url,)
+                        )
             await self.conn.commit()
 
     async def _write_worker(self):
         """
         @brief Background worker that batches and writes cache responses to the database.
-        
+
         Items are taken from a queue and committed in batches to reduce I/O overhead.
         """
         while True:
@@ -79,7 +87,9 @@ class CacheDatabase:
                 batch = []
                 try:
                     # Wait up to BATCH_INTERVAL for the first item
-                    item = await asyncio.wait_for(self.write_queue.get(), timeout=BATCH_INTERVAL)
+                    item = await asyncio.wait_for(
+                        self.write_queue.get(), timeout=BATCH_INTERVAL
+                    )
                     batch.append(item)
                     for _ in range(BATCH_SIZE - 1):
                         try:
@@ -95,7 +105,14 @@ class CacheDatabase:
                     # Format current time to match SQLite's DEFAULT CURRENT_TIMESTAMP format
                     current_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
                     values = [
-                        (url, content, json.dumps(headers), status_code, expected_size, current_time)
+                        (
+                            url,
+                            content,
+                            json.dumps(headers),
+                            status_code,
+                            expected_size,
+                            current_time,
+                        )
                         for url, content, headers, status_code, expected_size in batch
                     ]
                     async with self.lock:
@@ -103,7 +120,7 @@ class CacheDatabase:
                             await self.conn.execute("BEGIN")
                             await self.conn.executemany(
                                 "INSERT OR REPLACE INTO cache (url, content, headers, status_code, expected_size, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
-                                values
+                                values,
                             )
                             await self.conn.commit()
                         except Exception as e:
@@ -120,19 +137,27 @@ class CacheDatabase:
         @param url The URL for which to retrieve the cached response.
         @return A dictionary with 'content', 'headers', and 'status_code' if found, otherwise None.
         """
-        expiration = (datetime.utcnow() - timedelta(seconds=CACHE_EXPIRATION_SECONDS)).strftime("%Y-%m-%d %H:%M:%S")
+        expiration = (
+            datetime.utcnow() - timedelta(seconds=CACHE_EXPIRATION_SECONDS)
+        ).strftime("%Y-%m-%d %H:%M:%S")
         async with self.lock:
             async with self.conn.execute(
                 "SELECT content, headers, status_code FROM cache WHERE url = ? AND timestamp > ?",
-                (url, expiration)
+                (url, expiration),
             ) as cursor:
                 row = await cursor.fetchone()
         if row:
             content, headers_json, status_code = row
-            return {"content": content, "headers": json.loads(headers_json), "status_code": status_code}
+            return {
+                "content": content,
+                "headers": json.loads(headers_json),
+                "status_code": status_code,
+            }
         return None
 
-    async def cache_response(self, url: str, content: bytes, headers: dict, status_code: int):
+    async def cache_response(
+        self, url: str, content: bytes, headers: dict, status_code: int
+    ):
         """
         @brief Enqueue a cache write operation.
         @param url The URL associated with the response.
@@ -149,7 +174,9 @@ class CacheDatabase:
         @return Total size in bytes.
         """
         async with self.lock:
-            async with self.conn.execute("SELECT SUM(LENGTH(content)) FROM cache") as cursor:
+            async with self.conn.execute(
+                "SELECT SUM(LENGTH(content)) FROM cache"
+            ) as cursor:
                 row = await cursor.fetchone()
                 return row[0] or 0
 

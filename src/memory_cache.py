@@ -8,12 +8,14 @@ import asyncio
 from cachetools import TTLCache
 from config import CACHE_EXPIRATION_SECONDS
 
+
 class MemoryCache:
     """
     @brief Provides an asynchronous in-memory cache with time-to-live support.
-    
+
     Uses cachetools.TTLCache and an asyncio lock to protect concurrent access.
     """
+
     def __init__(self, maxsize=1000, ttl=CACHE_EXPIRATION_SECONDS):
         """
         @brief Initialize the MemoryCache.
