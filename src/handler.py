@@ -175,17 +175,15 @@ class ProxyHandler:
                 try:
                     await task
                 except asyncio.CancelledError:
-                    logger.error("Task cancelled")
+                    pass
 
-            # Optionally close both writers.
-            remote_writer.close()
-            writer.close()
+            # Close the streams.
             try:
                 await remote_writer.wait_closed()
                 await writer.wait_closed()
             except Exception:
                 logger.error("Error closing tunnel streams")
-                
+
         elif method.upper() == "GET":
             # Try to retrieve from in-memory or persistent cache.
             cached = await self.memory_cache.get(url) or await self.db.get_cached(url)
