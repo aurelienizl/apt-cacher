@@ -1,6 +1,7 @@
 # Proxy Caching Server
 
 A lightweight, asynchronous HTTP proxy caching server implemented in Python. This project uses persistent SQLite storage along with an in-memory TTL cache to efficiently cache and serve HTTP responses, reducing redundant network requests and improving response times.
+Note: This project is not compliant with RFC 7234 standard.
 
 ## Features
 
