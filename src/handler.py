@@ -149,7 +149,6 @@ class ProxyHandler:
             try:
                 host, port_str = path.split(":")
                 port = int(port_str)
-                # Optionally, use asyncio.wait_for for a timeout (e.g., 10 seconds)
                 remote_reader, remote_writer = await asyncio.wait_for(
                     asyncio.open_connection(host, port), timeout=10
                 )
@@ -160,9 +159,33 @@ class ProxyHandler:
 
             writer.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
             await writer.drain()
-            await asyncio.gather(
-                self.forward(reader, remote_writer), self.forward(remote_reader, writer)
+
+            # Create tasks for both directions.
+            task1 = asyncio.create_task(self.forward(reader, remote_writer))
+            task2 = asyncio.create_task(self.forward(remote_reader, writer))
+
+            # Wait for either direction to finish.
+            done, pending = await asyncio.wait(
+                [task1, task2], return_when=asyncio.FIRST_COMPLETED
             )
+
+            # Cancel any pending tasks.
+            for task in pending:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    logger.error("Task cancelled")
+
+            # Optionally close both writers.
+            remote_writer.close()
+            writer.close()
+            try:
+                await remote_writer.wait_closed()
+                await writer.wait_closed()
+            except Exception:
+                logger.error("Error closing tunnel streams")
+                
         elif method.upper() == "GET":
             # Try to retrieve from in-memory or persistent cache.
             cached = await self.memory_cache.get(url) or await self.db.get_cached(url)
