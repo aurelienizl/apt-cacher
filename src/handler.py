@@ -113,7 +113,6 @@ class ProxyHandler:
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
         try:
-            # Read and parse the request line.
             request_line = await reader.readline()
             if not request_line:
                 writer.close()
@@ -127,7 +126,6 @@ class ProxyHandler:
             await self.send_error(writer)
             return
 
-        # Read HTTP headers.
         headers = {}
         while True:
             line = await reader.readline()
@@ -137,7 +135,6 @@ class ProxyHandler:
             if sep:
                 headers[key.strip()] = value.strip()
 
-        # Construct the full URL if needed.
         url = (
             path
             if path.startswith("http")
@@ -160,24 +157,18 @@ class ProxyHandler:
             writer.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
             await writer.drain()
 
-            # Create tasks for both directions.
             task1 = asyncio.create_task(self.forward(reader, remote_writer))
             task2 = asyncio.create_task(self.forward(remote_reader, writer))
 
-            # Wait for either direction to finish.
             done, pending = await asyncio.wait(
                 [task1, task2], return_when=asyncio.FIRST_COMPLETED
             )
-
-            # Cancel any pending tasks.
             for task in pending:
                 task.cancel()
                 try:
                     await task
                 except asyncio.CancelledError:
                     pass
-
-            # Close the streams.
             try:
                 await remote_writer.wait_closed()
                 await writer.wait_closed()
@@ -186,20 +177,25 @@ class ProxyHandler:
 
         elif method.upper() == "GET":
             # Try to retrieve from in-memory or persistent cache.
-            cached = await self.memory_cache.get(url) or await self.db.get_cached(url)
-            logger.info(f"Requesting {url}")
-            if cached:
-                logger.info(f"Cache hit for {url}")
-                response_line = f"HTTP/1.1 {cached['status_code']} OK\r\n"
-                writer.write(response_line.encode())
-                for key, value in cached["headers"].items():
-                    writer.write(f"{key}: {value}\r\n".encode())
-                writer.write(b"\r\n")
-                writer.write(cached["content"])
-                await writer.drain()
-                writer.close()
-            else:
-                logger.info(f"Cache miss for {url}")
-                await self.fetch_and_forward(url, writer)
+            try:   
+                cached = await self.memory_cache.get(url) or await self.db.get_cached(url)
+                logger.info(f"Requesting {url}")
+                if cached:
+                    logger.info(f"Cache hit for {url}")
+                    response_line = f"HTTP/1.1 {cached['status_code']} OK\r\n"
+                    writer.write(response_line.encode())
+                    for key, value in cached["headers"].items():
+                        writer.write(f"{key}: {value}\r\n".encode())
+                    writer.write(b"\r\n")
+                    writer.write(cached["content"])
+                    await writer.drain()
+                    writer.close()
+                    await writer.wait_closed()
+                else:
+                    logger.info(f"Cache miss for {url}")
+                    await self.fetch_and_forward(url, writer)
+            except Exception as e:
+                logger.error(f"Error handling GET request: {e}")
+                await self.send_error(writer, status_code=502, reason="Bad Gateway")
         else:
             await self.send_error(writer, status_code=405, reason="Method Not Allowed")
