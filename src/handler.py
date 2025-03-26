@@ -82,10 +82,7 @@ class ProxyHandler:
             await writer.drain()
         finally:
             writer.close()
-            try:
-                await writer.wait_closed()
-            except Exception:
-                pass
+            await writer.wait_closed()
 
     async def send_error(self, writer, status_code=400, reason="Bad Request"):
         """
@@ -98,6 +95,7 @@ class ProxyHandler:
         writer.write(response_line.encode())
         await writer.drain()
         writer.close()
+        await writer.wait_closed()
 
     async def handle_client(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
@@ -116,6 +114,7 @@ class ProxyHandler:
             request_line = await reader.readline()
             if not request_line:
                 writer.close()
+                await writer.wait_closed()
                 return
 
             parts = request_line.decode().strip().split()
